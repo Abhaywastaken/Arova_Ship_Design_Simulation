@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "name": "Synthetic format example (not CFD)",
+  "mesh": {
+    "file": "sample.stl",
+    "lengthM": 60,
+    "up": "+Z",
+    "bow": "+X"
+  },
+  "coordinates": {
+    "frame": "ship-x-forward-y-port-z-up",
+    "rotationOrder": "ZYX",
+    "referencePointM": [
+      30,
+      0,
+      5
+    ]
+  },
+  "environment": {
+    "waterDensityKgM3": 1025,
+    "gravityMps2": 9.81,
+    "speedMps": 0,
+    "waveAmplitudeM": 1,
+    "wavePeriodS": 8,
+    "waveHeadingDeg": 180,
+    "wavePhaseRad": 0
+  },
+  "equilibrium": {
+    "draftM": 4,
+    "massKg": 2952000,
+    "beamM": 12,
+    "depthM": 10,
+    "cgM": [
+      30,
+      0,
+      5
+    ],
+    "bowPointM": [
+      54,
+      0,
+      8
+    ]
+  },
+  "reports": [
+    {
+      "file": "motion.csv",
+      "time": {
+        "column": "time_s",
+        "unit": "s"
+      },
+      "channels": {
+        "roll": {
+          "column": "roll_deg",
+          "unit": "deg"
+        },
+        "pitch": {
+          "column": "pitch_deg",
+          "unit": "deg"
+        },
+        "heave": {
+          "column": "heave_m",
+          "unit": "m"
+        },
+        "bowAcceleration": {
+          "column": "bow_acc_z_mps2",
+          "unit": "m/s2"
+        }
+      }
+    },
+    {
+      "file": "buoyancy.out",
+      "time": {
+        "column": "flow-time",
+        "unit": "s"
+      },
+      "channels": {
+        "buoyancy": {
+          "column": "buoyancyz",
+          "unit": "N"
+        }
+      }
+    }
+  ],
+  "forceDefinition": "SYNTHETIC force signal for testing the import format, not an ANSYS result.",
+  "notes": "All signals are generated demonstration data. This box and its prescribed motion are not a validated CFD simulation."
+}

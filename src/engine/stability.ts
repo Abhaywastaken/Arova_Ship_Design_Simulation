@@ -107,6 +107,19 @@ export class SectionModel {
     return { V, yB: V ? My / V : 0, zB: V ? Mz / V : 0, xB: V ? Mx / V : 0 };
   }
 
+  /** Integrate sections clipped by an independently specified plane at each station. */
+  volumeUnderWaterplanes(planeAt: (x: number) => { uy: number; uz: number; h: number }): number {
+    let volume = 0;
+    let previousArea = 0;
+    for (let i = 0; i < this.xs.length; i++) {
+      const { uy, uz, h } = planeAt(this.xs[i]);
+      const area = areaCentroid(clip(this.polys[i], uy, uz, h)).A;
+      if (i > 0) volume += 0.5 * (previousArea + area) * (this.xs[i] - this.xs[i - 1]);
+      previousArea = area;
+    }
+    return volume;
+  }
+
   /** Find plane level h so the submerged volume equals V0. */
   solve(phi: number, V0: number) {
     const uy = Math.sin(phi),

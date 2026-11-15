@@ -542,7 +542,7 @@ export function motions(
     const m = new WaveMotion(ship, statesFor(c, opts.speedKn, 0), wave, opts.positionPct, 20);
     const vm = m.verticalMotion;
     const roll = m.rollAmp as number;
-    return {
+    const result = {
       heaveAmp: vm.heaveAmp,
       pitchAmpDeg: (Math.abs(vm.pitchAmp) * 180) / Math.PI,
       rollAmpDeg: (Math.abs(roll) * 180) / Math.PI,
@@ -551,6 +551,8 @@ export function motions(
       encounterFreq: m.coefficients.encounter_frequency,
       naturalRollPeriod: (2 * c.hydro.BWL * Math.PI * 0.4) / Math.sqrt(G * Math.max(c.GMt, 1e-6)),
     };
+    if (!Object.values(result).every(Number.isFinite)) throw new Error("The analytical motion model is unavailable for this loading, speed or wave heading.");
+    return result;
   } finally {
     console.error = origError;
   }

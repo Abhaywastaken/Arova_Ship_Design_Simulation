@@ -1,5 +1,9 @@
 # Ship Design Pre-Check (Meyer Turku challenge)
 
+**Current scope:** Ship Test Bench opens directly into Test with the demo ferry. Its sidebar includes Waves (with live hydrostatic buoyancy), Heel, Hydrostatics, Stability, and Performance. Flooding/Evacuation tabs and animations, the editor shell, Issues, Inspect, Design, Damage, How to use, Sources, and tour are removed. Read REPO_MAP.md for files and SIMULATION_INPUTS.md for per-metric inputs/formulas/limitations. The original challenge description below is historical context.
+
+File also imports STL/GLB plus ANSYS setup/results packages. Imported profiles have a separate recording-based panel/scene, synchronized playback, unavailable missing channels, and no GZ/righting moment or demo PDF. See ANSYS_IMPORT.md. Keep imported data isolated from demo analysis. Geometry alone stays static until results are supplied.
+
 **First step, every session and after every context reset: read `INSTRUCTIONS.txt` and follow it.** It lists the files to read (always `PROGRESS.md` and `THINGS_TO_ASK.txt`) and which files belong to which kind of task.
 
 **Challenge:** "Understanding ship design rules and compliance". Help engineers understand complex ship rules and catch compliance issues early in design.
@@ -14,7 +18,7 @@
 
 ## Architecture
 - `src/engine/` is pure TS, UI-free, testable in Node: `vessel.ts` (adapter, weights, tanks, free surface), `stability.ts` (GZ), `flooding.ts`, `evacuation.ts` (Circ.1533 Annex 2), `topology.ts` (adjacency, doors, routing, max-flow, overlap), `generators.ts` (stamps, auto doors), `rules.ts`, `analyze.ts`, `io.ts`.
-- `src/ui/`: `store.ts`, `App.tsx`, `three/Viewport.tsx`, `Inspector.tsx`, `panels.tsx`, `TestPanel.tsx`, `help.tsx`, `report.ts`.
+- `src/ui/`: `store.ts`, `App.tsx` (Test-only shell), `three/Viewport.tsx`, `TestPanel.tsx`, `EngineeringPanels.tsx` (Hydrostatics, Stability, Performance), `Chart.tsx`, `fields.tsx`, `theme.ts`, `report.ts`. The old combined sidebar module, inspector and help/tour remain deleted.
 - Coordinates follow vessel.js: x forward from the stern, y to port, z up from the keel. The three.js scene wraps everything in one group rotated -90 deg about X.
 
 ## Rules
@@ -35,7 +39,7 @@
 ## Conventions
 - Spaces must never overlap: use `editSpace()` / `overlapsWith()` for any edit that moves or resizes a space. A space whose centre is outside the hull is refused too (`centreOutsideHull`).
 - Doors are called "emergency doors" in the UI; every door counts as an exit in the escape and evacuation checks.
-- The app always starts from the default demo ferry (`demoDesign()`); keep its existing flags as a showcase. The previous session is only restored from File.
+- The app always starts from the default demo ferry (`demoDesign()`); keep its existing flags as a showcase. Imported ship profiles and results are retained in memory for switching during the browser session. They use their own recordings, not the ferry hull/calculations. The old session-restore helpers remain unexposed.
 - Physics changes need an analytic test. Interaction changes need `npm run e2e`.
 - No emojis in UI text or docs.
 - Keep it light: build on vessel.js and existing libraries.

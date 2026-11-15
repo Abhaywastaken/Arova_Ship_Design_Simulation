@@ -7,10 +7,11 @@ import { overlapsWith, connections } from "../src/engine/topology";
 import { cabinBlock, autoDoors, stairCore, doorSpot, emergencyDoorWidth } from "../src/engine/generators";
 import { analyze } from "../src/engine/analyze";
 import type { Design } from "../src/engine/types";
+import hulls from "./fixtures/hulls.json";
 
 function box(): Design {
   const d = blankDesign();
-  d.hull = { template: "box", LOA: 100, BOA: 20, depth: 10, designDraft: 5, designSpeedKn: 10, parsonsK: 0.03 };
+  d.hull = { template: "custom", custom: hulls.box, LOA: 100, BOA: 20, depth: 10, designDraft: 5, designSpeedKn: 10, parsonsK: 0.03 };
   d.decks = [{ id: "tt", name: "Tank top", z: 1 }];
   d.bulkheadDeckId = "tt";
   return d;

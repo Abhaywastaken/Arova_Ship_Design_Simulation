@@ -2,14 +2,16 @@ import { useMemo, useRef, useState, useEffect, type ReactNode } from "react";
 import { Canvas, useThree, useFrame, type ThreeEvent } from "@react-three/fiber";
 import { OrbitControls, Edges, Html, Line, GizmoHelper, GizmoViewport } from "@react-three/drei";
 import * as THREE from "three";
-import { useStore, newId, live } from "../store";
+import { useStore, newId, live, resetLive } from "../store";
 import { createShip, spaceVertical, spaceDeckIds, sortedDecks, deckHeight, halfBreadthAt, motions, G, centreOutsideHull } from "../../engine/vessel";
 import { rectOf, spacesOnDeck, sharedEdges, OUTSIDE, overlapsWith } from "../../engine/topology";
 import { cabinBlock, stairCore, doorSpot, type DoorSpot } from "../../engine/generators";
 import { gzAt } from "../../engine/stability";
+import { BuoyancyModel } from "../../engine/buoyancy";
 import type { Design, Space, LSA } from "../../engine/types";
 import { pairKey } from "../../engine/types";
 import { hullGeometry, deckGeometry, sectionGeometry } from "./geometry";
+import { ImportedScene } from "./ImportedScene";
 import { TYPE_COLOR, STATUS_COLOR, DEFAULT_SIZE, DEFAULT_PERSONS, TYPE_LABEL, LSA_COLOR, EXIT_COLOR } from "../theme";
 
 const SNAP = 0.25;
@@ -46,16 +48,17 @@ function usePalette() {
 
 export function Viewport() {
   const design = useStore((s) => s.design);
-  const LOA = design.hull.LOA;
+  const profile = useStore(s => s.profiles.find(p => p.id === s.activeProfileId));
+  const LOA = profile?.placement.lengthM ?? design.hull.LOA;
   return (
     <div className="absolute inset-0" style={{ background: "var(--viewport)" }}>
       <Canvas
-        camera={{ position: [LOA * 0.1 - 35, 48, 95], fov: 38, near: 0.5, far: 6000 }}
+        camera={{ position: [LOA * 0.1 - 35, 48, 95], fov: 38, near: Math.min(0.5, LOA / 100), far: Math.max(6000, LOA * 20) }}
         gl={{ antialias: true, preserveDrawingBuffer: true, alpha: true }}
         onPointerMissed={() => useStore.getState().tool.kind === "select" && useStore.getState().select(null)}
       >
         <Lights />
-        <Scene />
+        {profile ? <ImportedScene key={profile.id} profile={profile} /> : <Scene />}
         <OrbitControls
           makeDefault
           target={[LOA / 2, 6, 0]}
@@ -64,8 +67,8 @@ export function Viewport() {
           zoomToCursor
           zoomSpeed={1.1}
           rotateSpeed={0.75}
-          minDistance={4}
-          maxDistance={800}
+          minDistance={Math.max(0.01, LOA * 0.03)}
+          maxDistance={Math.max(800, LOA * 8)}
           maxPolarAngle={Math.PI * 0.495}
         />
         <GizmoHelper alignment="bottom-right" margin={[64, 120]}>
@@ -102,14 +105,16 @@ function CameraRig() {
     };
   }, [camera, gl]);
   const design = useStore((s) => s.design);
+  const profileLength = useStore(s => s.profiles.find(p => p.id === s.activeProfileId)?.placement.lengthM);
   const goal = useRef<{ target: THREE.Vector3; pos: THREE.Vector3 } | null>(null);
   useEffect(() => {
-    const L = design.hull.LOA;
+    const L = profileLength ?? design.hull.LOA;
     const ctl = () => controls as unknown as { target: THREE.Vector3; update: () => void } | null;
     const onView = (e: Event) => {
       const mode = (e as CustomEvent).detail as string;
-      const target = new THREE.Vector3(L / 2, 6, 0);
-      const pos = mode === "plan" ? new THREE.Vector3(L / 2, L * 1.2, 0.01) : mode === "side" ? new THREE.Vector3(L / 2, 7, L * 1.05) : mode === "bow" ? new THREE.Vector3(L * 1.45, 18, 30) : new THREE.Vector3(L * 0.1 - 35, 48, 95);
+      const ratio = L / 120;
+      const target = new THREE.Vector3(L / 2, 6 * ratio, 0);
+      const pos = mode === "plan" ? new THREE.Vector3(L / 2, L * 1.2, 0.01) : mode === "side" ? new THREE.Vector3(L / 2, 7 * ratio, L * 1.05) : mode === "bow" ? new THREE.Vector3(L * 1.45, 18 * ratio, 30 * ratio) : new THREE.Vector3(L * 0.1 - 35 * ratio, 48 * ratio, 95 * ratio);
       goal.current = { target, pos };
     };
     const onFocus = (e: Event) => {
@@ -126,7 +131,8 @@ function CameraRig() {
       window.removeEventListener("viewport:view", onView);
       window.removeEventListener("viewport:focus", onFocus);
     };
-  }, [camera, controls, design.hull.LOA]);
+  }, [camera, controls, design.hull.LOA, profileLength]);
+  useEffect(() => { window.dispatchEvent(new CustomEvent("viewport:view", { detail: "3d" })); }, [profileLength]);
   useFrame((_, dt) => {
     const g = goal.current;
     const c = controls as unknown as { target: THREE.Vector3; update: () => void } | null;
@@ -149,8 +155,8 @@ function Scene() {
   const analysis = useStore((s) => s.analysis);
   const view = useStore((s) => s.view);
   const mode = useStore((s) => s.mode);
-  const testKind = useStore((s) => s.test.kind);
   const activeDeckId = useStore((s) => s.activeDeckId);
+  const importedModelVisible = useStore((s) => !!s.refMesh?.visible);
   const p = usePalette();
   const key = hullKey(design);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -167,6 +173,7 @@ function Scene() {
     <>
       <group rotation={[-Math.PI / 2, 0, 0]}>
         <ShipMotion>
+          {!importedModelVisible && <>
           {view.showHull && (
             <mesh geometry={hullGeo} renderOrder={1}>
               <meshStandardMaterial color={p.hull} transparent opacity={p.dark ? 0.1 : 0.14} side={THREE.DoubleSide} depthWrite={false} metalness={0} roughness={0.9} />
@@ -184,13 +191,12 @@ function Scene() {
           {view.showBulkheads && <Bulkheads ship={geomShip} />}
           <Spaces visibleDeckIds={visibleDeckIds} />
           <Doors visibleDeckIds={visibleDeckIds} />
-          <FailingWalls visibleDeckIds={visibleDeckIds} />
+          {!testing && <FailingWalls visibleDeckIds={visibleDeckIds} />}
           <LSAs visibleDeckIds={visibleDeckIds} />
-          {(view.showRoutes || (testing && testKind === "evac")) && !(testing && testKind === "evac") && <Routes visibleDeckIds={visibleDeckIds} />}
+          {view.showRoutes && <Routes visibleDeckIds={visibleDeckIds} />}
           {!testing && <FloodCase />}
-          {testing && testKind === "flood" && <FloodWater />}
-          {testing && testKind === "evac" && <EvacDots />}
           {!testing && <FlagPins />}
+          </>}
           <RefMeshView />
         </ShipMotion>
         {c && !c.overloaded && (testing || view.showWater) && (
@@ -213,6 +219,7 @@ function ShipMotion({ children }: { children: ReactNode }) {
   const analysis = useStore((s) => s.analysis);
   const design = useStore((s) => s.design);
   const c = analysis?.condition;
+  const buoyancyModel = useMemo(() => analysis?.ship ? new BuoyancyModel(analysis.ship, design.hull.depth) : null, [analysis?.ship, design.hull.depth]);
   const motion = useMemo(() => {
     if (mode !== "test" || test.kind !== "sea" || !analysis?.ship || !c || c.overloaded) return null;
     try {
@@ -223,8 +230,8 @@ function ShipMotion({ children }: { children: ReactNode }) {
   }, [mode, test.kind, test.speedKn, test.waveFreq, test.waveAmp, test.headingDeg, analysis, c]);
   useEffect(() => {
     t.current = 0;
-    live.history = [];
-  }, [test.restart, test.kind, mode]);
+    resetLive();
+  }, [test.restart, test.kind, mode, c]);
 
   useFrame((_, dt) => {
     const P = pivot.current,
@@ -255,7 +262,6 @@ function ShipMotion({ children }: { children: ReactNode }) {
       live.pitchDeg = pitch / D2R;
       live.rollDeg = roll / D2R;
       live.vertAcc = -we * we * (heave - pitch * xBow);
-      pushHistory(time, live.heave, live.rollDeg);
     } else if (test.kind === "heel") {
       const gz = analysis?.gz;
       const maxDeg = Math.min(gz?.rangeDeg ?? 60, 75);
@@ -264,22 +270,19 @@ function ShipMotion({ children }: { children: ReactNode }) {
       live.heelDeg = deg;
       live.gz = gz ? gzAt(gz, deg) : 0;
       pushHistory(time, deg, live.gz);
-    } else if (test.kind === "flood") {
-      const fl = analysis?.flood;
-      const cs = fl?.ok ? fl.cases[test.floodCase] : undefined;
-      const p = ease(Math.min(1, time / 6));
-      live.floodProgress = p;
-      if (cs) {
-        const Td = cs.draft ?? fl!.bulkheadDeckZ + 1.5;
-        const dA = cs.draftAft ?? Td + 2,
-          dF = cs.draftFwd ?? Td;
-        heave = -(Td - T) * p;
-        pitch = -Math.atan((dA - dF) / design.hull.LOA) * p;
-        if (cs.GMd !== null && cs.GMd <= 0) roll = 25 * D2R * p;
-        live.draftAft = c.draftAft + (dA - c.draftAft) * p;
-        live.draftFwd = c.draftFwd + (dF - c.draftFwd) * p;
-      }
     }
+    if (test.kind === "sea" && buoyancyModel && motion) {
+      const sample = buoyancyModel.sample({
+        draftM: T, heaveM: heave, rollRad: roll, pitchRad: pitch, pivotXM: lcf,
+        waveAmplitudeM: test.waveAmp, waveFrequencyRadS: test.waveFreq,
+        headingRad: test.headingDeg * D2R,
+        encounterFrequencyRadS: Math.max(Math.abs(motion?.encounterFreq ?? test.waveFreq), 0.05),
+        timeS: time,
+      });
+      live.buoyancyN = sample.forceN;
+      live.submergedVolumeM3 = sample.volumeM3;
+    }
+    if (test.kind === "sea" && motion) pushHistory(time, live.heave, live.rollDeg);
     P.position.set(lcf, 0, T + heave);
     P.rotation.set(roll, pitch, 0);
   });
@@ -290,15 +293,11 @@ function ShipMotion({ children }: { children: ReactNode }) {
   );
 }
 
-function ease(x: number) {
-  return x < 0.5 ? 2 * x * x : 1 - (-2 * x + 2) ** 2 / 2;
-}
-
 let lastPush = 0;
 function pushHistory(t: number, a: number, b: number) {
   if (t - lastPush < 0.1 && t >= lastPush) return;
   lastPush = t;
-  live.history.push({ t, a, b });
+  live.history.push({ t, a, b, buoyancyN: live.buoyancyN });
   if (live.history.length > 240) live.history.shift();
 }
 
@@ -388,117 +387,6 @@ function Sea({ T, L, B, lcf, trimTan }: { T: number; L: number; B: number; lcf: 
   );
 }
 
-function FloodWater() {
-  const analysis = useStore((s) => s.analysis);
-  const idx = useStore((s) => s.test.floodCase);
-  const design = useStore((s) => s.design);
-  const ref = useRef<THREE.Mesh>(null);
-  const fl = analysis?.flood;
-  const cs = fl?.ok ? fl.cases[idx] : undefined;
-  const c = analysis?.condition;
-  useFrame(() => {
-    if (!ref.current || !cs || !c) return;
-    const Td = cs.draft ?? fl!.bulkheadDeckZ + 1.5;
-    const level = (c.T + (Td - c.T)) * Math.max(0.02, live.floodProgress);
-    ref.current.scale.set(1, 1, Math.max(0.01, level));
-    ref.current.position.z = level / 2;
-  });
-  if (!cs) return null;
-  return (
-    <mesh ref={ref} position={[(cs.xAft + cs.xFwd) / 2, 0, 0.5]} renderOrder={8}>
-      <boxGeometry args={[cs.xFwd - cs.xAft, design.hull.BOA * 0.92, 1]} />
-      <meshStandardMaterial color={cs.survives ? "#8a9aa3" : "#e5484d"} transparent opacity={0.55} roughness={0.9} depthWrite={false} />
-    </mesh>
-  );
-}
-
-/** Visual walk-through of the escape routes (people as dots). The Circ.1533 numbers are in the panel. */
-function EvacDots() {
-  const analysis = useStore((s) => s.analysis);
-  const design = useStore((s) => s.design);
-  const restart = useStore((s) => s.test.restart);
-  const ref = useRef<THREE.InstancedMesh>(null);
-  const agents = useMemo(() => {
-    const evac = analysis?.evac;
-    if (!evac?.ok) return [];
-    const deckZ = new Map(design.decks.map((d) => [d.id, d.z]));
-    const total = evac.persons || 1;
-    const per = Math.max(1, Math.ceil(total / 320));
-    const out: { pts: THREE.Vector3[]; cum: number[]; slow: boolean[]; delay: number; persons: number }[] = [];
-    let seed = 1;
-    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-    for (const [sid, r] of evac.assignments) {
-      const s = design.spaces.find((x) => x.id === sid);
-      if (!s) continue;
-      const z0 = (deckZ.get(s.deckId) ?? 0) + 0.9;
-      const pts = [new THREE.Vector3(s.xCentre, s.yCentre, z0)];
-      for (const st of r.steps) pts.push(new THREE.Vector3(st.conn.x, st.conn.y, (deckZ.get(st.conn.deckId) ?? 0) + 0.9));
-      const last = design.spaces.find((x) => x.id === r.steps[r.steps.length - 1].space);
-      if (last) pts.push(new THREE.Vector3(last.xCentre + (rnd() - 0.5) * last.length * 0.7, last.yCentre + (rnd() - 0.5) * last.breadth * 0.7, (deckZ.get(last.deckId) ?? 0) + 0.9));
-      // Manhattan legs inside spaces
-      const path: THREE.Vector3[] = [pts[0]];
-      for (let i = 1; i < pts.length; i++) {
-        const a = path[path.length - 1],
-          b = pts[i];
-        if (Math.abs(a.z - b.z) < 0.01 && Math.abs(a.x - b.x) > 0.01 && Math.abs(a.y - b.y) > 0.01) path.push(new THREE.Vector3(b.x, a.y, a.z));
-        path.push(b);
-      }
-      const cum = [0];
-      const slow: boolean[] = [];
-      for (let i = 1; i < path.length; i++) {
-        const isStair = Math.abs(path[i].z - path[i - 1].z) > 0.01;
-        slow.push(isStair);
-        cum.push(cum[i - 1] + path[i].distanceTo(path[i - 1]) * (isStair ? 1.4 : 1));
-      }
-      const n = Math.max(1, Math.round(s.persons / per));
-      for (let k = 0; k < n; k++) out.push({ pts: path.map((p) => p.clone().add(new THREE.Vector3((rnd() - 0.5) * 0.6, (rnd() - 0.5) * 0.6, 0))), cum, slow, delay: rnd() * 25, persons: Math.min(per, s.persons - k * per) });
-    }
-    return out;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [analysis, design, restart]);
-  const m = useMemo(() => new THREE.Matrix4(), []);
-  const col = useMemo(() => new THREE.Color(), []);
-  useFrame(() => {
-    const mesh = ref.current;
-    if (!mesh) return;
-    const simT = live.t * 6; // walk-through runs 6x faster than real time
-    let arrived = 0,
-      total = 0;
-    agents.forEach((a, i) => {
-      const dist = Math.max(0, simT - a.delay) * 1.2;
-      const end = a.cum[a.cum.length - 1];
-      let p: THREE.Vector3;
-      let onStair = false;
-      if (dist >= end) {
-        p = a.pts[a.pts.length - 1];
-        arrived += a.persons;
-      } else {
-        let j = 1;
-        while (j < a.cum.length && a.cum[j] < dist) j++;
-        const u = (dist - a.cum[j - 1]) / Math.max(1e-6, a.cum[j] - a.cum[j - 1]);
-        p = a.pts[j - 1].clone().lerp(a.pts[j], u);
-        onStair = a.slow[j - 1];
-      }
-      total += a.persons;
-      m.makeTranslation(p.x, p.y, p.z);
-      mesh.setMatrixAt(i, m);
-      mesh.setColorAt(i, col.set(dist >= end ? "#46a758" : onStair ? "#e0803c" : "#efece7"));
-    });
-    mesh.instanceMatrix.needsUpdate = true;
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-    live.evacTime = simT;
-    live.evacArrived = arrived;
-    live.evacTotal = total;
-  });
-  if (!agents.length) return null;
-  return (
-    <instancedMesh ref={ref} args={[undefined, undefined, agents.length]} renderOrder={10}>
-      <sphereGeometry args={[0.32, 10, 8]} />
-      <meshBasicMaterial toneMapped={false} />
-    </instancedMesh>
-  );
-}
-
 // ------------------------------------------------------------------ static scene parts
 
 function DeckPlate({ ship, z, active, visible }: { ship: ReturnType<typeof createShip>; z: number; active: boolean; visible: boolean }) {
@@ -575,7 +463,7 @@ function SpaceBox({ s, onActive, hovered, setHover }: { s: Space; onActive: bool
   const mat = useRef<THREE.MeshStandardMaterial>(null);
   const { zBase, height } = spaceVertical(design, s);
   const h = Math.max(0.3, height - 0.12);
-  const flagged = status === "red" || status === "amber";
+  const flagged = !testing && (status === "red" || status === "amber");
   const baseZ = zBase + 0.06 + h / 2;
   const tankFill = s.type === "tank" && s.tank ? s.tank.fillPct / 100 : null;
   const baseOpacity = onActive ? (p.dark ? 0.86 : 0.92) : 0.16;
@@ -727,8 +615,8 @@ function Doors({ visibleDeckIds }: { visibleDeckIds: Set<string> }) {
         // plus a screen-size exit icon on the active deck (and on flagged doors) that shows through the rooms.
         const w = Math.max(1.0, d.widthMm / 1000 + 0.2);
         const sel = selection?.kind === "door" && selection.id === d.id;
-        const st = analysis?.statusById.get(d.id);
-        const color = sel ? "#ffffff" : bad ? STATUS_COLOR.amber : st && st !== "green" ? STATUS_COLOR[st] : EXIT_COLOR;
+        const st = testing ? undefined : analysis?.statusById.get(d.id);
+        const color = sel ? "#ffffff" : !testing && bad ? STATUS_COLOR.amber : st && st !== "green" ? STATUS_COLOR[st] : EXIT_COLOR;
         const z0 = deckZ.get(d.deckId) ?? 0;
         const pick = {
           onClick: (e: ThreeEvent<MouseEvent>) => {
@@ -914,15 +802,23 @@ function RefMeshView() {
   const obj = ref?.object as THREE.Object3D | undefined;
   useEffect(() => {
     if (!obj || !ref) return;
+    const originals = new Map<THREE.Material, { transparent: boolean; opacity: number; depthWrite: boolean }>();
     obj.traverse((o) => {
       const m = (o as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
       for (const mm of Array.isArray(m) ? m : m ? [m] : []) {
-        mm.transparent = true;
-        mm.opacity = ref.opacity;
-        mm.depthWrite = false;
+        if (originals.has(mm)) continue;
+        originals.set(mm, { transparent: mm.transparent, opacity: mm.opacity, depthWrite: mm.depthWrite });
+        mm.transparent = mm.transparent || ref.opacity < 1;
+        mm.opacity *= ref.opacity;
+        mm.depthWrite = mm.depthWrite && ref.opacity >= 1;
+        mm.needsUpdate = true;
       }
     });
-  }, [obj, ref]);
+    return () => originals.forEach((original, material) => {
+      Object.assign(material, original);
+      material.needsUpdate = true;
+    });
+  }, [obj, ref?.opacity]);
   if (!ref || !obj || !ref.visible) return null;
   return (
     <group position={ref.offset} rotation={[0, 0, ref.rotZ * D2R]} scale={ref.scale}>
@@ -1145,7 +1041,6 @@ function Interaction({ ship }: { ship: ReturnType<typeof createShip> }) {
       }
       st.edit((d) => void d.spaces.push(sp));
       st.select({ kind: "space", id });
-      st.set({ panel: "inspect" });
     } else if (tool.kind === "stamp") {
       e.stopPropagation();
       const r = tool.stamp === "cabin_block" ? cabinBlock(st.design, deck.id, x, y, st.stampOpts) : stairCore(st.design, deck.id, x, y, st.stampOpts.stairWidthMm);
@@ -1173,7 +1068,6 @@ function Interaction({ ship }: { ship: ReturnType<typeof createShip> }) {
       const dup = st.design.doors.find((q) => q.deckId === deck.id && Math.hypot(q.x - w.x, q.y - w.y) < 0.6);
       if (dup) {
         st.select({ kind: "door", id: dup.id });
-        st.set({ panel: "inspect" });
         st.notify("There is already an emergency door here; it is now selected.", "info");
         return;
       }

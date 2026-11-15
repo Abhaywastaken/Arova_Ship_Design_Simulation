@@ -18,6 +18,8 @@ TASK: change or add a rule, threshold or flag text
 TASK: physics (hydrostatics, weights, stability, flooding, resistance, motions)
   - src/engine/vessel.ts       adapter to vessel.js (use boundedWaterline, never minX = 0 directly)
   - src/engine/stability.ts, src/engine/flooding.ts
+  - src/engine/buoyancy.ts     live hydrostatic force from the posed hull; tests/buoyancy.test.ts
+  - SIMULATION_INPUTS.md      inputs, formulas, units, assumptions and external comparison checklist
   - src/vendor/vessel/PATCHES.md   what was changed in vessel.js and its known bug
   - tests/physics.test.ts      add an analytic check for any new physics
 
@@ -32,12 +34,19 @@ TASK: 3D view, editing, test mode animations
   - scripts/e2e.mjs            browser test; run it after any interaction change
 
 TASK: panels, layout, menus, theme, report
-  - src/ui/App.tsx (menus, build bar, tool rail), src/ui/panels.tsx, src/ui/Inspector.tsx
-  - src/ui/TestPanel.tsx (dials), src/ui/help.tsx (guide, sources, tour), src/ui/report.ts (PDF)
+  - src/ui/App.tsx (Test-only shell; the old sidebar panels, inspector and help/tour were deleted)
+  - src/ui/TestPanel.tsx (simulation controls and dials), src/ui/report.ts (PDF)
+  - src/ui/EngineeringPanels.tsx (Hydrostatics, Stability, Performance), src/ui/Chart.tsx (SVG charts)
   - src/index.css (theme tokens: bg, surface, surface-2, line, fg, muted, accent)
 
 TASK: file import / export
-  - src/engine/io.ts (design JSON, vessel.js JSON, offsets CSV), src/ui/App.tsx loadMesh (STL/OBJ/glTF)
+  - src/engine/io.ts (design JSON, vessel.js JSON, offsets CSV; retained engine utilities)
+  - src/ui/FileMenu.tsx, src/ui/three/modelImport.ts (STL/GLB preview import and placement)
+  - tests/modelImport.test.ts, scripts/e2e.mjs (normalization and actual browser uploads)
+  - ANSYS_IMPORT.md, src/engine/ansys.ts (metadata, CSV/Fluent OUT, units and interpolation)
+  - src/ui/shipProfiles.ts, src/ui/ImportedTestPanel.tsx, src/ui/three/ImportedScene.tsx
+  - tests/ansys.test.ts, tests/ansysPackages.test.ts, examples/ansys-synthetic/
+  - Imported profiles use their own recordings; never fall back to ferry analysis or PDF.
   - tests/io.test.ts, tests/features.test.ts
 
 BEFORE SAYING A CHANGE IS DONE

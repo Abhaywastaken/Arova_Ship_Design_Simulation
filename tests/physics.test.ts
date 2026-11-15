@@ -1,19 +1,33 @@
 // Verifies the physics against closed-form results for a rectangular box barge.
 // If vessel.js hydrostatics, our GZ integration or the flooding method were wrong, these would fail.
 import { describe, it, expect } from "vitest";
-import { blankDesign } from "../src/data/demoDesign";
-import { createShip, hydroAt, RHO, computeCondition, grownCondition } from "../src/engine/vessel";
+import { blankDesign, demoDesign } from "../src/data/demoDesign";
+import { createShip, hydroAt, RHO, computeCondition, grownCondition, motions } from "../src/engine/vessel";
 import { gzCurve, gzAt } from "../src/engine/stability";
 import { floodAnalysis, lostVolume, requiredR } from "../src/engine/flooding";
 import type { Design } from "../src/engine/types";
+import hulls from "./fixtures/hulls.json";
 
 const L = 100,
   B = 20,
   D = 10;
 
+describe("analytical motion output validity", () => {
+  const d = demoDesign();
+  const ship = createShip(d);
+  const c = computeCondition(d, ship);
+  it("returns finite motion amplitudes for the demo sea state", () => {
+    const result = motions(ship, c, { speedKn: 18, waveFreq: 0.6, waveAmp: 1.5, relHeadingDeg: 150, positionPct: 90 });
+    expect(Object.values(result).every(Number.isFinite)).toBe(true);
+  });
+  it("rejects an unsupported following-sea combination rather than propagating NaN into the scene", () => {
+    expect(() => motions(ship, c, { speedKn: 18, waveFreq: 1.6, waveAmp: 1.5, relHeadingDeg: 0, positionPct: 90 })).toThrow(/unavailable/);
+  });
+});
+
 function boxDesign(): Design {
   const d = blankDesign();
-  d.hull = { template: "box", LOA: L, BOA: B, depth: D, designDraft: 5, designSpeedKn: 10, parsonsK: 0.03 };
+  d.hull = { template: "custom", custom: hulls.box, LOA: L, BOA: B, depth: D, designDraft: 5, designSpeedKn: 10, parsonsK: 0.03 };
   d.decks = [{ id: "main", name: "Main deck", z: D }];
   d.bulkheadDeckId = "main";
   return d;
@@ -46,7 +60,7 @@ describe("box barge hydrostatics (vessel.js)", () => {
 
 describe("V-section prism (vessel.js prismaticHull.json) hydrostatics", () => {
   const d = boxDesign();
-  d.hull.template = "wedge";
+  d.hull.custom = hulls.wedge;
   const ship = createShip(d);
   const T = 5;
   const h = hydroAt(ship, T);

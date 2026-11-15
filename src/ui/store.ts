@@ -5,6 +5,8 @@ import { analyze, type Analysis } from "../engine/analyze";
 import { demoDesign } from "../data/demoDesign";
 import { overlapsWith } from "../engine/topology";
 import { centreOutsideHull } from "../engine/vessel";
+import type { ShipProfile } from "./shipProfiles";
+import { disposeModel } from "./three/modelImport";
 
 export type StampKind = "cabin_block" | "stair_core";
 export type Tool =
@@ -15,8 +17,7 @@ export type Tool =
   | { kind: "lsa"; lsa: "lifeboat" | "liferaft" }
   | { kind: "stamp"; stamp: StampKind };
 export type Selection = { kind: "space" | "door" | "bulkhead" | "lsa"; id: string } | null;
-export type Panel = "test" | "issues" | "inspect" | "design" | "hydro" | "stability" | "damage" | "evac" | "performance" | "guide" | "sources";
-export type TestKind = "sea" | "heel" | "flood" | "evac";
+export type TestKind = "sea" | "heel";
 
 export interface RefMesh {
   name: string;
@@ -37,7 +38,6 @@ export interface TestSettings {
   headingDeg: number; // 180 = head seas
   heelSweep: boolean;
   heelDeg: number;
-  floodCase: number;
   timeScale: number;
   restart: number; // bump to restart the animation
 }
@@ -79,6 +79,15 @@ export function previousSession(): Design | null {
 }
 
 interface State {
+  profiles: ShipProfile[];
+  activeProfileId: string | null;
+  playback: { time: number; seek: number; loop: boolean };
+  addProfiles: (profiles: ShipProfile[]) => void;
+  selectProfile: (id: string | null) => void;
+  removeProfile: (id: string) => void;
+  updateProfile: (id: string, patch: Partial<Pick<ShipProfile, "placement" | "object">>) => void;
+  seekPlayback: (time: number) => void;
+  setLoop: (loop: boolean) => void;
   design: Design;
   past: Design[];
   future: Design[];
@@ -87,7 +96,7 @@ interface State {
   selection: Selection;
   activeDeckId: string;
   tool: Tool;
-  panel: Panel;
+  panel: "test";
   mode: "design" | "test";
   theme: "dark" | "light";
   view: { isolateDeck: boolean; showHull: boolean; showRoutes: boolean; showWater: boolean; showBulkheads: boolean; showLabels: boolean };
@@ -95,7 +104,7 @@ interface State {
   test: TestSettings;
   refMesh: RefMesh | null;
   toast: { text: string; kind: "error" | "info" | "ok"; id: number } | null;
-  tourStep: number | null;
+  tourStep: null;
   assembleAt: number; // time (s) of the last design load: spaces assemble from it
   stampOpts: { cabins: number; cabinLength: number; cabinDepth: number; corridorWidth: number; persons: number; stairWidthMm: number };
   setStampOpts: (p: Partial<State["stampOpts"]>) => void;
@@ -143,36 +152,68 @@ export const useStore = create<State>((set, get) => {
   };
   const initial = loadInitial();
   setTimeout(schedule, 0);
-  let urlPanel: Panel | null = null;
-  let urlDeck: string | null = null;
-  let urlMode: "design" | "test" | null = null;
   let theme: "dark" | "light" = "dark";
   let urlTest: TestKind | null = null;
   try {
-    urlTest = (new URLSearchParams(window.location.search).get("test") as TestKind | null) ?? null;
     const q = new URLSearchParams(window.location.search);
-    urlPanel = q.get("panel") as Panel | null;
-    urlDeck = q.get("deck");
-    urlMode = q.get("mode") === "test" ? "test" : null;
-    theme = (q.get("theme") as "dark" | "light" | null) ?? (localStorage.getItem(THEME_KEY) as "dark" | "light" | null) ?? "dark";
+    const requestedTest = q.get("test");
+    if (["sea", "heel"].includes(requestedTest ?? "")) urlTest = requestedTest as TestKind;
+    const requestedTheme = q.get("theme") ?? localStorage.getItem(THEME_KEY);
+    if (requestedTheme === "dark" || requestedTheme === "light") theme = requestedTheme;
   } catch {
     /* no window */
   }
   return {
+    profiles: [], activeProfileId: null, playback: { time: 0, seek: 0, loop: false },
+    addProfiles: (profiles) => {
+      const ids = new Set(profiles.map(p => p.id));
+      const old = get().profiles.filter(p => ids.has(p.id));
+      set({ profiles: [...get().profiles.filter(p => !ids.has(p.id)), ...profiles] });
+      get().selectProfile(profiles[profiles.length - 1].id);
+      old.forEach(p => disposeModel(p.source));
+    },
+    selectProfile: (id) => {
+      const next = get().profiles.find(p => p.id === id);
+      if (id !== null && !next) return;
+      const previousId = get().activeProfileId;
+      const time = next?.resumeTime ?? 0;
+      set({ profiles: get().profiles.map(p => p.id === previousId && p.id !== id ? { ...p, resumeTime: live.t } : p), activeProfileId: id,
+        refMesh: next ? { name: next.meshFile.name, object: next.object, offset: [0, 0, 0], scale: 1, rotZ: 0, visible: true, opacity: 1 } : null,
+        playback: { ...get().playback, time, seek: get().playback.seek + 1 },
+        test: { ...get().test, running: !!next?.recording || id === null, restart: Date.now() } });
+      resetLive(); live.t = time;
+      window.dispatchEvent(new CustomEvent("viewport:view", { detail: "3d" }));
+    },
+    removeProfile: (id) => {
+      if (get().activeProfileId === id) get().selectProfile(null);
+      const removed = get().profiles.find(p => p.id === id);
+      set({ profiles: get().profiles.filter(p => p.id !== id) });
+      if (removed) disposeModel(removed.source);
+    },
+    updateProfile: (id, patch) => {
+      set({ profiles: get().profiles.map(p => p.id === id ? { ...p, ...patch } : p) });
+      if (id === get().activeProfileId && get().refMesh && patch.object) set({ refMesh: { ...get().refMesh!, object: patch.object } });
+    },
+    seekPlayback: (time) => {
+      const r = get().profiles.find(p => p.id === get().activeProfileId)?.recording;
+      if (!r || !Number.isFinite(time)) return;
+      set({ playback: { ...get().playback, time: Math.min(r.end, Math.max(r.start, time)), seek: get().playback.seek + 1 }, test: { ...get().test, running: false } });
+    },
+    setLoop: (loop) => set({ playback: { ...get().playback, loop } }),
     design: initial,
     past: [],
     future: [],
     analysis: null,
     analyzing: true,
     selection: null,
-    activeDeckId: (urlDeck && initial.decks.some((d) => d.id === urlDeck) ? urlDeck : initial.decks[Math.min(2, initial.decks.length - 1)]?.id) ?? "",
+    activeDeckId: initial.decks[Math.min(2, initial.decks.length - 1)]?.id ?? "",
     tool: { kind: "select" },
-    panel: urlPanel ?? (urlMode === "test" ? "test" : "issues"),
-    mode: urlMode ?? "design",
+    panel: "test",
+    mode: "test",
     theme,
     view: { isolateDeck: true, showHull: true, showRoutes: false, showWater: true, showBulkheads: true, showLabels: false },
     focusCase: null,
-    test: { kind: urlTest ?? "sea", running: true, speedKn: initial.hull.designSpeedKn, waveAmp: 1.5, waveFreq: 0.6, headingDeg: 150, heelSweep: true, heelDeg: 10, floodCase: 0, timeScale: 1, restart: 0 },
+    test: { kind: urlTest ?? "sea", running: true, speedKn: initial.hull.designSpeedKn, waveAmp: 1.5, waveFreq: 0.6, headingDeg: 150, heelSweep: true, heelDeg: 10, timeScale: 1, restart: 0 },
     refMesh: null,
     toast: null,
     tourStep: null,
@@ -234,8 +275,9 @@ export const useStore = create<State>((set, get) => {
       set({ design: n, past: [...get().past, get().design], future: [], selection: null, activeDeckId: n.decks[Math.min(2, n.decks.length - 1)]?.id ?? "", focusCase: null, assembleAt: performance.now() / 1000 });
       schedule();
     },
-    select: (s) => set({ selection: s, panel: s ? "inspect" : get().panel }),
-    set: (p) => set(p),
+    // Legacy panel links and tool requests must never re-enable the editor.
+    select: () => set({ selection: null }),
+    set: (p) => set({ ...p, mode: "test", panel: "test", tool: { kind: "select" }, selection: null, tourStep: null }),
     setView: (p) => set({ view: { ...get().view, ...p } }),
     setTest: (p) => set({ test: { ...get().test, ...p } }),
     setTheme: (t) => {
@@ -269,11 +311,15 @@ export const live = {
   vertAcc: 0,
   heelDeg: 0,
   gz: 0,
-  floodProgress: 0,
-  draftAft: 0,
-  draftFwd: 0,
-  evacTime: 0,
-  evacArrived: 0,
-  evacTotal: 0,
-  history: [] as { t: number; a: number; b: number }[],
+  buoyancyN: 0,
+  submergedVolumeM3: 0,
+  history: [] as { t: number; a: number; b: number; buoyancyN: number }[],
 };
+
+/** Clear measurements when a test is switched or restarted. */
+export function resetLive() {
+  Object.assign(live, {
+    t: 0, heave: 0, pitchDeg: 0, rollDeg: 0, vertAcc: 0,
+    heelDeg: 0, gz: 0, buoyancyN: 0, submergedVolumeM3: 0, history: [],
+  });
+}

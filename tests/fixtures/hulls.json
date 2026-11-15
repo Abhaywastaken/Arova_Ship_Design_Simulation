@@ -1,0 +1,72 @@
+{
+  "box": {
+    "label": "Box barge (rectangular, analytic reference)",
+    "reference": {
+      "LOA": 100,
+      "BOA": 20,
+      "Depth": 10
+    },
+    "attributes": {
+      "bulb": false,
+      "transom": true,
+      "cstern": 0,
+      "prismaticLengthRatio": 0.6,
+      "appendices": {}
+    },
+    "halfBreadths": {
+      "waterlines": [
+        0,
+        1
+      ],
+      "stations": [
+        0,
+        1
+      ],
+      "table": [
+        [
+          1,
+          1
+        ],
+        [
+          1,
+          1
+        ]
+      ]
+    }
+  },
+  "wedge": {
+    "label": "V-section prism (vessel.js prismaticHull.json)",
+    "reference": {
+      "LOA": 20,
+      "BOA": 10,
+      "Depth": 4
+    },
+    "attributes": {
+      "bulb": false,
+      "transom": false,
+      "cstern": 0,
+      "prismaticLengthRatio": 0.6,
+      "appendices": {}
+    },
+    "halfBreadths": {
+      "waterlines": [
+        0,
+        1
+      ],
+      "stations": [
+        0,
+        1
+      ],
+      "table": [
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          1
+        ]
+      ]
+    }
+  }
+}

@@ -1,0 +1,86 @@
+solid synthetic_box
+facet normal 0 0 0
+outer loop
+vertex 0 -6 0
+vertex 60 6 0
+vertex 60 -6 0
+endloop
+endfacet
+facet normal 0 0 0
+outer loop
+vertex 0 -6 0
+vertex 0 6 0
+vertex 60 6 0
+endloop
+endfacet
+facet normal 0 0 0
+outer loop
+vertex 0 -6 10
+vertex 60 -6 10
+vertex 60 6 10
+endloop
+endfacet
+facet normal 0 0 0
+outer loop
+vertex 0 -6 10
+vertex 60 6 10
+vertex 0 6 10
+endloop
+endfacet
+facet normal 0 0 0
+outer loop
+vertex 0 -6 0
+vertex 60 -6 0
+vertex 60 -6 10
+endloop
+endfacet
+facet normal 0 0 0
+outer loop
+vertex 0 -6 0
+vertex 60 -6 10
+vertex 0 -6 10
+endloop
+endfacet
+facet normal 0 0 0
+outer loop
+vertex 60 -6 0
+vertex 60 6 0
+vertex 60 6 10
+endloop
+endfacet
+facet normal 0 0 0
+outer loop
+vertex 60 -6 0
+vertex 60 6 10
+vertex 60 -6 10
+endloop
+endfacet
+facet normal 0 0 0
+outer loop
+vertex 60 6 0
+vertex 0 6 0
+vertex 0 6 10
+endloop
+endfacet
+facet normal 0 0 0
+outer loop
+vertex 60 6 0
+vertex 0 6 10
+vertex 60 6 10
+endloop
+endfacet
+facet normal 0 0 0
+outer loop
+vertex 0 6 0
+vertex 0 -6 0
+vertex 0 -6 10
+endloop
+endfacet
+facet normal 0 0 0
+outer loop
+vertex 0 6 0
+vertex 0 -6 10
+vertex 0 6 10
+endloop
+endfacet
+endsolid synthetic_box
